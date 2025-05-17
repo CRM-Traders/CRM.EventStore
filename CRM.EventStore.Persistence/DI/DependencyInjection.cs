@@ -1,6 +1,8 @@
 ﻿using CRM.EventStore.Application.Common.Abstractions.Mediators;
 using CRM.EventStore.Application.Common.Persistence;
+using CRM.EventStore.Application.Common.Persistence.Repositories;
 using CRM.EventStore.Persistence.Databases;
+using CRM.EventStore.Persistence.Repositories;
 using CRM.EventStore.Persistence.Repositories.Base;
 using CRM.EventStore.Persistence.Utils;
 using Microsoft.EntityFrameworkCore;
@@ -27,6 +29,7 @@ public static class DependencyInjection
         services.AddScoped(typeof(IIdentityRepository<>), typeof(IdentityRepository<>));
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IIdentityUnitOfWork, IdentityUnitOfWork>();
+        services.AddScoped<IEventRepository, EventRepository>();
 
         return services;
     }
