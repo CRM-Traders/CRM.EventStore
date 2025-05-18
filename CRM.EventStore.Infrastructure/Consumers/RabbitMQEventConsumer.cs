@@ -111,7 +111,7 @@ public class RabbitMQEventConsumer : IEventConsumer, IDisposable
     {
         try
         {
-            var eventMessage = JsonSerializer.Deserialize<EventMessage>(message);
+            var eventMessage = JsonSerializer.Deserialize<EventMessage>(message, new JsonSerializerOptions { PropertyNameCaseInsensitive = true});
 
             if (eventMessage == null)
             {
