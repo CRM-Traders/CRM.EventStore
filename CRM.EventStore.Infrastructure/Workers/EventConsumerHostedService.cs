@@ -2,16 +2,26 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-namespace CRM.EventStore.Infrastructure.Workers;
 
-public class EventConsumerHostedService(IServiceProvider _serviceProvider, ILogger<EventConsumerHostedService> _logger) : BackgroundService
+public class EventConsumerHostedService : BackgroundService
 {
+    private readonly IServiceProvider _serviceProvider;
+    private readonly ILogger<EventConsumerHostedService> _logger;
+    private IEventConsumer _eventConsumer;
+
+    public EventConsumerHostedService(
+        IServiceProvider serviceProvider,
+        ILogger<EventConsumerHostedService> logger)
+    {
+        _serviceProvider = serviceProvider;
+        _logger = logger;
+    }
+
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Event Consumer Service starting");
 
-        var scope = _serviceProvider.CreateScope();
-        var _eventConsumer = scope.ServiceProvider.GetRequiredService<IEventConsumer>();
+        _eventConsumer = _serviceProvider.GetRequiredService<IEventConsumer>();
         _eventConsumer.StartConsuming();
 
         return Task.CompletedTask;
@@ -21,9 +31,15 @@ public class EventConsumerHostedService(IServiceProvider _serviceProvider, ILogg
     {
         _logger.LogInformation("Event Consumer Service stopping");
 
-        var scope = _serviceProvider.CreateScope();
-        var _eventConsumer = scope.ServiceProvider.GetRequiredService<IEventConsumer>();
-        await _eventConsumer.StopConsumingAsync();
+        if (_eventConsumer != null)
+        {
+            await _eventConsumer.StopConsumingAsync();
+
+            if (_eventConsumer is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+        }
 
         await base.StopAsync(cancellationToken);
     }

@@ -5,29 +5,28 @@ using CRM.EventStore.Application.Common.Persistence.Repositories;
 using CRM.EventStore.Application.Common.Services;
 using CRM.EventStore.Domain.Common.Options.RabbitMq;
 using CRM.EventStore.Domain.Entities.StoredEvents;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
-namespace CRM.EventStore.Infrastructure.Consumers;
-
 public class RabbitMQEventConsumer : IEventConsumer, IDisposable
 {
     private readonly IConnection _connection;
     private readonly IModel _channel;
-    private readonly IEventRepository _eventRepository;
     private readonly ILogger<RabbitMQEventConsumer> _logger;
     private readonly RabbitMQOptions _options;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
 
     public RabbitMQEventConsumer(
-        IEventRepository eventRepository,
         IOptions<RabbitMQOptions> options,
-        ILogger<RabbitMQEventConsumer> logger)
+        ILogger<RabbitMQEventConsumer> logger,
+        IServiceScopeFactory serviceScopeFactory)
     {
-        _eventRepository = eventRepository;
         _logger = logger;
         _options = options.Value;
+        _serviceScopeFactory = serviceScopeFactory;
 
         var factory = new ConnectionFactory
         {
@@ -71,10 +70,15 @@ public class RabbitMQEventConsumer : IEventConsumer, IDisposable
 
     public void StartConsuming()
     {
+        _channel.BasicQos(0, 1, false);
+
         var consumer = new EventingBasicConsumer(_channel);
 
         consumer.Received += async (sender, ea) =>
         {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var eventRepository = scope.ServiceProvider.GetRequiredService<IEventRepository>();
+
             try
             {
                 var body = ea.Body.ToArray();
@@ -82,7 +86,7 @@ public class RabbitMQEventConsumer : IEventConsumer, IDisposable
 
                 _logger.LogInformation("Received message with routing key: {RoutingKey}", ea.RoutingKey);
 
-                await ProcessEventMessageAsync(message);
+                await ProcessEventMessageAsync(message, eventRepository);
 
                 _channel.BasicAck(ea.DeliveryTag, false);
             }
@@ -107,16 +111,35 @@ public class RabbitMQEventConsumer : IEventConsumer, IDisposable
         return Task.CompletedTask;
     }
 
-    private async Task ProcessEventMessageAsync(string message)
+    private async Task ProcessEventMessageAsync(string message, IEventRepository eventRepository)
     {
         try
         {
-            var eventMessage = JsonSerializer.Deserialize<EventMessage>(message, new JsonSerializerOptions { PropertyNameCaseInsensitive = true});
+            var eventMessage = JsonSerializer.Deserialize<EventMessage>(message,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
             if (eventMessage == null)
             {
                 _logger.LogWarning("Failed to deserialize event message");
                 return;
+            }
+
+            var content = eventMessage.Content;
+
+            try
+            {
+                if (!content.StartsWith("{") && !content.StartsWith("["))
+                {
+                    content = JsonSerializer.Serialize(content);
+                }
+                else
+                {
+                    JsonDocument.Parse(content);
+                }
+            }
+            catch
+            {
+                content = JsonSerializer.Serialize(content);
             }
 
             var storedEvent = new Event(
@@ -126,11 +149,11 @@ public class RabbitMQEventConsumer : IEventConsumer, IDisposable
                 eventMessage.AggregateId,
                 eventMessage.AggregateType,
                 eventMessage.OccurredOn,
-                eventMessage.Content,
+                content,
                 DateTimeOffset.UtcNow,
-                eventMessage.Metadata);
+                eventMessage.Metadata != null ? JsonSerializer.Serialize(eventMessage.Metadata) : null);
 
-            await _eventRepository.AddEventAsync(storedEvent);
+            await eventRepository.AddEventAsync(storedEvent);
 
             _logger.LogInformation("Stored event: {EventType} from service: {ServiceName} for aggregate: {AggregateId}",
                 eventMessage.EventType, eventMessage.ServiceName, eventMessage.AggregateId);
@@ -141,7 +164,6 @@ public class RabbitMQEventConsumer : IEventConsumer, IDisposable
             throw;
         }
     }
-
     public void Dispose()
     {
         try

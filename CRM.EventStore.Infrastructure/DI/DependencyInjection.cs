@@ -1,12 +1,9 @@
 ﻿using System.Security.Cryptography;
-using CRM.EventStore.Application.Common.Persistence.Repositories;
 using CRM.EventStore.Application.Common.Services;
 using CRM.EventStore.Application.Common.Synchronizer;
 using CRM.EventStore.Domain.Common.Options.Auth;
 using CRM.EventStore.Domain.Common.Options.RabbitMq;
-using CRM.EventStore.Infrastructure.Consumers;
 using CRM.EventStore.Infrastructure.Services.Synchronizer;
-using CRM.EventStore.Infrastructure.Workers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.ResponseCompression;
@@ -29,7 +26,7 @@ public static class DependencyInjection
         services.AddOptions(configuration);
 
         services.Configure<RabbitMQOptions>(configuration.GetSection("RabbitMQ"));
-        services.AddScoped<IEventConsumer, RabbitMQEventConsumer>();
+        services.AddSingleton<IEventConsumer, RabbitMQEventConsumer>();
         services.AddHostedService<EventConsumerHostedService>();
 
         services.AddAsymmetricAuthentication(configuration);
